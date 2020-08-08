@@ -33,7 +33,7 @@ Set the environment variable `AFL_TAINT_INPUT`.
 Valid/expected values:
 
   * empty, not set or `&lt;` -> stdin
-  * a filename -> this file
+  * a filename -> this file (must be the a full path!)
 
 #### Specify you want to see ouput
 

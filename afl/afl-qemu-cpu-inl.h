@@ -178,11 +178,21 @@ void afl_setup(void) {
 
   if ((ptr = getenv("AFL_TAINT_INPUT")) && *ptr != '<' && *ptr != '>') {
   
-    TAINT_var_filename = ptr;
+    char buf[PATH_MAX];
+    if (realpath(ptr, buf) != NULL)
+      TAINT_var_filename = strdup(buf);
+    else
+      TAINT_var_filename = ptr;
+  
     TAINT_var_is_file = 1;
+    TAINT_var_taint_open = 1;
     TAINT_var_is_stdin = 0;
   
-  }
+    if (TAINT_var_debug) fprintf(stderr, "[TAINT] input file is %s\n", TAINT_var_filename);
+
+  } else
+    if (TAINT_var_debug) fprintf(stderr, "[TAINT] input is stdin\n");
+
 
   if (getenv("AFL_DEBUG")) TAINT_var_debug = 1;
 
@@ -318,6 +328,8 @@ void afl_forkserver(CPUState *cpu) {
     TAINT_var_is_file = 0;
     TAINT_var_is_stdin = 0;
     TAINT_var_taint_open = 0;
+
+    if (TAINT_var_debug) fprintf(stderr, "[TAINT] input is shmem\n");
 
   }
 

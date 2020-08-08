@@ -342,10 +342,13 @@ void TAINT_func_offset_set(int fd, ssize_t offset) {
 
 ssize_t TAINT_func_offset_get(int fd) {
 
+fprintf(stderr, "XXX %d\n", fd);
+
   if (fd == 0 && TAINT_var_is_stdin)
     return TAINT_var_stdin_offset;
 
   if (TAINT_var_is_file && fd_entries) {
+fprintf(stderr, "YYY %d\n", fd);
     struct fd_entry *f = fd_entries;
     while (f) {
       if (fd == f->fd && f->active == 1) {
