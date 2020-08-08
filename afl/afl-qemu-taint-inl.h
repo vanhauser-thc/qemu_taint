@@ -147,7 +147,7 @@ void TAINT_func_mem_check(uintptr_t mem, size_t len) {
             if (TAINT_var_filemap) {
               entry = offset / 8;
               bit = 1 << (offset % 8);
-              TAINT_var_filemap[entry] |= bit;
+              TAINT_var_filemap[entry] = (TAINT_var_filemap[entry] | bit);
             }
             if (TAINT_var_debug) fprintf(stderr, "[TAINT] MEM found mem=0x%lx file_offset=%u\n",
                     mem + index, offset);
