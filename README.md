@@ -30,7 +30,7 @@ To see any taint you have to tell the tool:
 Set the environment variable `AFL_TAINT_INPUT`.
 Valid/expected values:
 
-  * empty, not set or `&lt;` -> stdin
+  * empty, not set or `<` -> stdin
   * a filename -> this file (must be the a full path!)
 
 #### Specify you want to see ouput
