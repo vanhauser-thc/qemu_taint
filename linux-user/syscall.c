@@ -6821,10 +6821,9 @@ static int do_openat(void *cpu_env, int dfd, const char *pathname, int flags, mo
         }
       }
 
-      fprintf(stderr, "TAINT openat %d %s\n",  dfd, path(pathname));
 
       if (realpath(path(pathname), rpath) != NULL) {
-        fprintf(stderr, "TAINT openat realpath %s\n", rpath);
+        if (TAINT_var_debug) fprintf(stderr, "[CHECK] SYSCALL openat %s\n", rpath);
         if (TAINT_var_filename && strcmp(rpath, TAINT_var_filename) == 0) {
           if ((mode & O_TRUNC) == 0)
             TAINT_func_fd_follow(ret);
@@ -7001,9 +7000,8 @@ static abi_long do_syscall1(void *cpu_env, int num, abi_long arg1,
                 return -TARGET_EFAULT;
             TAINT_res = get_errno(safe_read(arg1, p, arg3));
             ret = get_errno(TAINT_res);
-            fprintf(stderr, "CHECK syscall read res:%ld ret:%ld fd:%d buf:%p len:%lu -> %ld read\n", TAINT_res, ret, (int)arg1, (void*)arg2, (size_t)arg3, (ssize_t)ret);
             if (TAINT_res > 0 && TAINT_func_fd_is_tainted(arg1)) {
-              fprintf(stderr, "TAINT syscall read fd:%d buf:%p len:%lu -> %ld read\n", (int)arg1, (void*)p, (size_t)arg3, (ssize_t)ret);
+              if (TAINT_var_debug) fprintf(stderr, "[TAINT] SYSCALL read fd:%d buf:%p len:%lu -> %ld read\n", (int)arg1, (void*)p, (size_t)arg3, (ssize_t)ret);
               TAINT_func_mem_add(p, ret, TAINT_func_offset_get(arg1));
               TAINT_func_offset_add(arg1, ret);
             }

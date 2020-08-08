@@ -87,6 +87,8 @@ void TAINT_func_fd_follow(int fd) {
 
 void TAINT_func_fd_unfollow(int fd) {
 
+  if (fd < 0) return;
+
   if (fd == 0 && TAINT_var_is_stdin == 1) {
     if (TAINT_var_debug) fprintf(stderr, "[TAINT] FD unfollow %d\n", fd);
     TAINT_var_is_stdin = 0;
@@ -140,9 +142,11 @@ void TAINT_func_mem_check(uintptr_t mem, size_t len) {
           if (mem + index >= m->start && mem + index < m->end) {
             unsigned int entry, bit, offset;
             offset = mem + index + m->offset - m->start;
-            entry = offset / 8;
-            bit = 1 << (offset % 8);
-            filemap[entry] |= bit;
+            if (filemap) {
+              entry = offset / 8;
+              bit = 1 << (offset % 8);
+              filemap[entry] |= bit;
+            }
             fprintf(stderr, "[TAINT] MEM found mem=0x%lx file_offset=%u\n",
                     mem + index, offset);
           }
