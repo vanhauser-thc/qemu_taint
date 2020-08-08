@@ -174,7 +174,6 @@ void afl_setup(void) {
     shm_id = atoi(id_str);
     afl_area_ptr = shmat(shm_id, NULL, 0);
     if (afl_area_ptr == (void *)-1) exit(1);
-    afl_area_ptr[0] = 1;
 
   }
 
@@ -451,7 +450,6 @@ void afl_persistent_loop(void) {
     if (is_persistent) {
 
       memset(afl_area_ptr, 0, MAP_SIZE);
-      afl_area_ptr[0] = 1;
 
     }
 
@@ -476,8 +474,6 @@ void afl_persistent_loop(void) {
       }
 
       raise(SIGSTOP);
-
-      afl_area_ptr[0] = 1;
 
     } else {
 
