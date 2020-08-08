@@ -7,7 +7,7 @@ First level taint implementation with qemu for linux user mode
 This is meant for [afl++](https://github.com/AFLplusplus/AFLplusplus).
 Checkout afl++, then in the afl++ repository execute
 `cd qemu_taint && ./build_qemu_taint.sh`.
-To use it just add the -T flag to afl-fuzz.
+To use it just add the -A flag to afl-fuzz.
 
 ## How to use stand-alone
 
