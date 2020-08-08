@@ -163,6 +163,8 @@ static void afl_map_shm_fuzz(void) {
 
 void afl_setup(void) {
 
+  if (getenv("AFL_DEBUG")) TAINT_var_debug = 1;
+
   char *ptr, *id_str = getenv(SHM_ENV_VAR);
 
   int shm_id;
@@ -190,11 +192,11 @@ void afl_setup(void) {
   
     if (TAINT_var_debug) fprintf(stderr, "[TAINT] input file is %s\n", TAINT_var_filename);
 
-  } else
+  } else {
+
     if (TAINT_var_debug) fprintf(stderr, "[TAINT] input is stdin\n");
 
-
-  if (getenv("AFL_DEBUG")) TAINT_var_debug = 1;
+  }
 
   /* pthread_atfork() seems somewhat broken in util/rcu.c, and I'm
      not entirely sure what is the cause. This disables that
