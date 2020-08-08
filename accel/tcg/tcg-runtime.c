@@ -32,6 +32,7 @@
 #include "exec/log.h"
 
 
+#include "../../afl/afl-qemu-taint.h"
 
 void taint_gen_getload(TCGv addr, int off);
 

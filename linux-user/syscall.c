@@ -7009,8 +7009,8 @@ static abi_long do_syscall1(void *cpu_env, int num, abi_long arg1,
             TAINT_res = get_errno(safe_read(arg1, p, arg3));
             ret = get_errno(TAINT_res);
             if (TAINT_res > 0 && TAINT_func_fd_is_tainted(arg1)) {
-              if (TAINT_var_debug) fprintf(stderr, "[TAINT] SYSCALL read fd:%d buf:%p len:%lu -> %ld read\n", (int)arg1, (void*)p, (size_t)arg3, (ssize_t)ret);
-              TAINT_func_mem_add(p, ret, TAINT_func_offset_get(arg1));
+              if (TAINT_var_debug) fprintf(stderr, "[TAINT] SYSCALL read fd:%ld buf:0x%lx len:%lu -> %ld read\n", arg1, (unsigned long int)p, (size_t)arg3, (ssize_t)ret);
+              TAINT_func_mem_add((unsigned long int)p, ret, TAINT_func_offset_get(arg1));
               TAINT_func_offset_add(arg1, ret);
             }
             if (ret >= 0 && fd_trans_host_to_target_data(arg1))
@@ -8463,7 +8463,7 @@ static abi_long do_syscall1(void *cpu_env, int num, abi_long arg1,
                                         v5, v6));
         }
         if ((size_t)ret != -1 && TAINT_func_fd_is_tainted(v5)) {
-          if (TAINT_var_debug) fprintf(stderr, "[TAINT] SYSCALL mmap fd:%d buf:0x%lx len:%lu offset:%lu\n", v5, ret, v2, v6);
+          if (TAINT_var_debug) fprintf(stderr, "[TAINT] SYSCALL mmap fd:%ld buf:0x%lx len:%lu offset:%lu\n", v5, ret, v2, v6);
           TAINT_func_mem_add(ret, v2, v6);
         }
 #else
@@ -8472,7 +8472,7 @@ static abi_long do_syscall1(void *cpu_env, int num, abi_long arg1,
                                     arg5,
                                     arg6));
         if ((size_t)ret != -1 && TAINT_func_fd_is_tainted(arg5)) {
-          if (TAINT_var_debug) fprintf(stderr, "[TAINT] SYSCALL mmap fd:%d buf:0x%lx len:%lu offset:%lu\n", arg5, ret, arg2, arg6);
+          if (TAINT_var_debug) fprintf(stderr, "[TAINT] SYSCALL mmap fd:%ld buf:0x%lx len:%lu offset:%lu\n", arg5, ret, arg2, arg6);
           TAINT_func_mem_add(ret, arg2, arg6);
         }
 #endif
@@ -8487,7 +8487,7 @@ static abi_long do_syscall1(void *cpu_env, int num, abi_long arg1,
                           target_to_host_bitmask(arg4, mmap_flags_tbl),
                           arg5, arg6 << MMAP_SHIFT);
         if ((ssize_t)ret != -1 && TAINT_func_fd_is_tainted(v5)) {
-          if (TAINT_var_debug) fprintf(stderr, "[TAINT] SYSCALL mmap2 fd:%d buf:0x%lx len:%lu offset:%lu\n", v5, ret, v2, v6 << 12);
+          if (TAINT_var_debug) fprintf(stderr, "[TAINT] SYSCALL mmap2 fd:%ld buf:0x%lx len:%lu offset:%lu\n", v5, ret, v2, v6 << 12);
           TAINT_func_mem_add(ret, v2, v6 << 12);
         }
        return get_errno(ret);
@@ -9397,8 +9397,8 @@ static abi_long do_syscall1(void *cpu_env, int num, abi_long arg1,
                       add = rest;
                       rest = 0;
                     }
-                    if (TAINT_var_debug) fprintf(stderr, "[TAINT] SYSCALL readv %u/%u fd:%d buf:0x%lx len:%lu offset:%lu\n", cnt + 1, arg3, arg1, iov->iov_base, add, TAINT_func_offset_get(arg1));
-                    TAINT_func_mem_add(iov->iov_base, add, TAINT_func_offset_get(arg1));
+                    if (TAINT_var_debug) fprintf(stderr, "[TAINT] SYSCALL readv %u/%lu fd:%ld buf:0x%lx len:%lu offset:%lu\n", cnt + 1, arg3, arg1, (unsigned long int)iov->iov_base, add, TAINT_func_offset_get(arg1));
+                    TAINT_func_mem_add((unsigned long)iov->iov_base, add, TAINT_func_offset_get(arg1));
                     TAINT_func_offset_add(arg1, add);
                     cnt++;
                   }
@@ -9442,8 +9442,8 @@ static abi_long do_syscall1(void *cpu_env, int num, abi_long arg1,
                       add = rest;
                       rest = 0;
                     }
-                    if (TAINT_var_debug) fprintf(stderr, "[TAINT] SYSCALL preadv %u/%u fd:%d buf:0x%lx len:%lu offset:%lu\n", cnt + 1, arg3, arg1, iov->iov_base, add, low);
-                    TAINT_func_mem_add(iov->iov_base, add, low);
+                    if (TAINT_var_debug) fprintf(stderr, "[TAINT] SYSCALL preadv %u/%lu fd:%ld buf:0x%lx len:%lu offset:%lu\n", cnt + 1, arg3, arg1, (unsigned long int)iov->iov_base, add, low);
+                    TAINT_func_mem_add((unsigned long int)iov->iov_base, add, low);
                     cnt++;
                   }
                 }
@@ -9819,7 +9819,7 @@ static abi_long do_syscall1(void *cpu_env, int num, abi_long arg1,
         }
         ret = get_errno(pread64(arg1, p, arg3, target_offset64(arg4, arg5)));
         if ((ssize_t)ret > 0 && TAINT_func_fd_is_tainted(arg1)) {
-          if (TAINT_var_debug) fprintf(stderr, "[TAINT] SYSCALL pread64 fd:%d buf:0x%lx len:%lu offset:%lu\n", arg1, arg2, ret, arg4);
+          if (TAINT_var_debug) fprintf(stderr, "[TAINT] SYSCALL pread64 fd:%ld buf:0x%lx len:%lu offset:%lu\n", arg1, arg2, ret, arg4);
           TAINT_func_mem_add(arg2, ret, arg4);
         }
         unlock_user(p, arg2, ret);

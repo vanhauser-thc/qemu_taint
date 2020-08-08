@@ -355,7 +355,7 @@ void afl_forkserver(CPUState *cpu) {
     TAINT_func_reset();
     if (TAINT_var_is_shmem) {
       volatile unsigned int testcase_len = *shared_buf_len;
-      TAINT_func_mem_add(shared_buf, testcase_len, 0);
+      TAINT_func_mem_add((unsigned long)shared_buf, testcase_len, 0);
     }
     
 
