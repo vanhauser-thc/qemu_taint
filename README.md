@@ -30,13 +30,14 @@ To see any taint you have to tell the tool:
 Set the environment variable `AFL_TAINT_INPUT`.
 Valid/expected values:
 
-  * empty, not set or `<` -> stdin
-  * a filename -> this file (must be the a full path!)
+  * empty, not set or `<`  -> stdin
+  * a filename  -> this file (must be a full path!)
 
 #### Specify you want to see ouput
 
 Set `AFL_DEBUG=1`.
-This prints more than just the touched byte offset though.
+This prints more than just the touched byte offset though. But otherwise you
+will not see any taint information :)
 
 ## Caveats
 
