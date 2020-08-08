@@ -145,9 +145,9 @@ static void afl_map_shm_fuzz(void) {
     shared_buf_len = (unsigned int *)map;
     shared_buf = map + sizeof(unsigned int);
 
-    if (getenv("AFL_DEBUG")) {
+    if (TAINT_var_debug) {
 
-      fprintf(stderr, "[AFL] DEBUG: successfully got fuzzing shared memory\n");
+      fprintf(stderr, "[DEBUG] successfully got fuzzing shared memory\n");
 
     }
 
@@ -284,8 +284,8 @@ void afl_forkserver(CPUState *cpu) {
     status |= (FS_OPT_SET_MAPSIZE(MAP_SIZE) | FS_OPT_MAPSIZE);
   if (sharedmem_fuzzing != 0) status |= FS_OPT_SHDMEM_FUZZ;
   if (status) status |= (FS_OPT_ENABLED);
-  if (getenv("AFL_DEBUG"))
-    fprintf(stderr, "Debug: Sending status %08x\n", status);
+  if (TAINT_var_debug)
+    fprintf(stderr, "[DEBUG] forkserver sending status %08x\n", status);
   memcpy(tmp, &status, 4);
 
   /* Tell the parent that we're alive. If the parent doesn't want
@@ -312,6 +312,12 @@ void afl_forkserver(CPUState *cpu) {
       exit(1);
 
     }
+    
+    // set taint for shmem fuzz
+    TAINT_var_is_shmem = 1;
+    TAINT_var_is_file = 0;
+    TAINT_var_is_stdin = 0;
+    TAINT_var_taint_open = 0;
 
   }
 
@@ -333,6 +339,13 @@ void afl_forkserver(CPUState *cpu) {
       if (waitpid(child_pid, &status, 0) < 0) exit(8);
 
     }
+
+    TAINT_func_reset();
+    if (TAINT_var_is_shmem) {
+      volatile unsigned int testcase_len = *shared_buf_len;
+      TAINT_func_mem_add(shared_buf, testcase_len, 0);
+    }
+    
 
     if (!child_stopped) {
 

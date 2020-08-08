@@ -9,7 +9,7 @@
 int TAINT_var_is_file;
 int TAINT_var_is_stdin = 1;
 int TAINT_var_is_shmem;
-int TAINT_var_taint_open = 1;
+int TAINT_var_taint_open;
 int TAINT_var_debug;
 ssize_t TAINT_var_stdin_offset;
 char *TAINT_var_filename = "/prg/tests/qemu/tiff-4.0.4/in/palette-1c-8b.tiff";
@@ -32,7 +32,44 @@ struct mem_entry {
 
 static struct fd_entry *fd_entries;
 static struct mem_entry *mem_entries;
-static unsigned char filemap[1024000 / 8];
+static unsigned char *filemap;
+
+static void TAINT_func_fd_clean(void) {
+  if (fd_entries) {
+    struct fd_entry *g, *f = fd_entries;
+    while (f) {
+      g = f->next;
+      free(f);
+      f = g;
+    }
+    fd_entries = NULL;
+  }
+}
+
+static void TAINT_func_mem_clean(void) {
+  if (mem_entries) {
+    struct mem_entry *n, *m = mem_entries;
+    while (m) {
+      n = m->next;
+      free(m);
+      m = n;
+    }
+    mem_entries = NULL;
+  }
+}
+
+void TAINT_func_reset() {
+  TAINT_func_fd_clean();
+  TAINT_func_mem_clean();
+  if (!TAINT_var_is_shmem) {
+    if (TAINT_var_filename) {
+      TAINT_var_is_file = 1;
+      TAINT_var_taint_open = 1;
+    }
+    else TAINT_var_is_stdin = 1;
+  }
+  TAINT_var_stdin_offset = 0;
+}
 
 void TAINT_func_fd_follow(int fd) {
   struct fd_entry *f = (struct fd_entry *) malloc(sizeof(struct fd_entry));
@@ -154,13 +191,13 @@ void TAINT_func_mem_remove(uintptr_t mem, size_t len) {
       if (m->start >= mem && m->end <= mem) {
         if (mem == m->start && len == m->len) {
           // complete removal, return
-          if (debug) fprintf(stderr, "[TAINT] MEM remove mem=0x%lx len=%lu\n", mem, len);
+          if (debug) fprintf(stderr, "[TAINT] MEM remove mem=0x%lx len=%lu (full)\n", mem, len);
           m->active = 0;
           return;
         }
         if (mem <= m->start && len >= m->len && mem + len > m->end) {
           // complete removal, dont return, might match more
-          if (debug) fprintf(stderr, "[TAINT] MEM remove mem=0x%lx len=%lu\n", mem, len);
+          if (debug) fprintf(stderr, "[TAINT] MEM remove mem=0x%lx len=%lu (full)\n", mem, len);
           m->active = 0;
         } else { // partial removal
 
@@ -172,12 +209,14 @@ void TAINT_func_mem_remove(uintptr_t mem, size_t len) {
               split_len = m->end - (mem + len - 1);
               split_ptr = mem + len;
             }
+            if (debug) fprintf(stderr, "[TAINT] MEM remove mem=0x%lx len=%lu\n", mem, m->end + 1 - mem);
             m->len = mem - m->start;
             m->end = m->start + m->len - 1;
           }
 
           if (!split_len && mem + len - 1 < m->end) {
             // beginning part is removed
+            if (debug) fprintf(stderr, "[TAINT] MEM remove mem=0x%lx len=%lu\n", m->start, mem + len - m->start);
             uintptr_t diff = (mem + len) - m->start;
             m->start = (mem + len);
             m->len = m->end - m->start + 1;
@@ -208,6 +247,7 @@ void TAINT_func_mem_move(uintptr_t mem_old, size_t len_old, uintptr_t mem_new, s
          )) {
         if (mem_old == m->start && len_old == m->len) {
             // exact match - just update and return
+            if (debug) fprintf(stderr, "[TAINT] MEM move from mem=0x%lx len=%lu to mem=0x%lx len=%lu (full)\n", mem_old, len_old, mem_new, len_new);
             m->start = mem_new;
             if (len_new < m->len)
               m->len = len_new;
@@ -228,19 +268,25 @@ void TAINT_func_mem_move(uintptr_t mem_old, size_t len_old, uintptr_t mem_new, s
           m->len = mem_old - m->start;
           diff -= m->len;
           m->end = m->start + m->len - 1;
-          if (len_new >= diff)
+          if (len_new >= diff) {
+            if (debug) fprintf(stderr, "[TAINT] MEM move from mem=0x%lx len=%lu to mem=0x%lx len=%lu\n", m->end, diff, mem_new, diff);
             TAINT_func_mem_add(mem_new, diff, m->offset + m->len);
-          else
+          } else {
+            if (debug) fprintf(stderr, "[TAINT] MEM move from mem=0x%lx len=%lu to mem=0x%lx len=%lu\n", m->end, diff, mem_new, len_new);
             TAINT_func_mem_add(mem_new, len_new, m->offset + m->len);
+          }
         }
 
         if (!split_len && mem_old + len_old - 1 < m->end) {
           // beginning part is moved
           diff = m->start - mem_old;
-          if (len_new - diff >= len_old)
+          if (len_new - diff >= len_old) {
+            if (debug) fprintf(stderr, "[TAINT] MEM move from mem=0x%lx len=%lu to mem=0x%lx len=%lu\n", m->start, mem_old + len_old - m->start, mem_new + diff, len_old);
             TAINT_func_mem_add(mem_new + diff, len_old, m->offset);
-          else
+          } else {
+            if (debug) fprintf(stderr, "[TAINT] MEM move from mem=0x%lx len=%lu to mem=0x%lx len=%lu\n", m->start, mem_old + len_old - m->start, mem_new + diff, len_new - diff);
             TAINT_func_mem_add(mem_new + diff, len_new - diff, m->offset);
+          }
           diff = (mem_old + len_old) - m->start;
           m->start = (mem_old + len_old);
           m->len = m->end - m->start + 1;
@@ -299,6 +345,7 @@ ssize_t TAINT_func_offset_get(int fd) {
     struct fd_entry *f = fd_entries;
     while (f) {
       if (fd == f->fd && f->active == 1) {
+        if (debug) fprintf(stderr, "[TAINT] FD offset get fd=%d offset==%ld\n", fd, f->offset);
         return f->offset;
       }
       f = f->next;

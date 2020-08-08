@@ -23,5 +23,7 @@ void TAINT_func_offset_add(int fd, ssize_t offset);
 void TAINT_func_offset_set(int fd, ssize_t offset);
 long int TAINT_func_offset_get(int fd);
 
+void TAINT_func_reset(void);
+
 #endif
 

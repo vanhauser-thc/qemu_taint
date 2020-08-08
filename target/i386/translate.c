@@ -2144,7 +2144,7 @@ static void gen_bndck(CPUX86State *env, DisasContext *s, int modrm,
 /* used for LEA and MOV AX, mem */
 static void gen_add_A0_ds_seg(DisasContext *s)
 {
-    fprintf(stderr, "->>> gen_add_A0_ds_seg\n");
+    fprintf(stderr, "FIXME: do we need to handle gen_add_A0_ds_seg?\n");
     gen_lea_v_seg(s, s->aflag, s->A0, R_DS, s->override);
 }
 
