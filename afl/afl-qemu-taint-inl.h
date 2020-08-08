@@ -117,7 +117,7 @@ int TAINT_func_fd_is_tainted(int fd) {
     struct fd_entry *f = fd_entries;
     while (f) {
       if (fd == f->fd && f->active == 1) {
-        fprintf(stderr, "[TAINT] FD match %d\n", fd);
+        if (TAINT_var_debug) fprintf(stderr, "[TAINT] FD match %d\n", fd);
         return 1;
       }
       f = f->next;
@@ -147,7 +147,7 @@ void TAINT_func_mem_check(uintptr_t mem, size_t len) {
               bit = 1 << (offset % 8);
               filemap[entry] |= bit;
             }
-            fprintf(stderr, "[TAINT] MEM found mem=0x%lx file_offset=%u\n",
+            if (TAINT_var_debug) fprintf(stderr, "[TAINT] MEM found mem=0x%lx file_offset=%u\n",
                     mem + index, offset);
           }
           index++;
@@ -342,13 +342,10 @@ void TAINT_func_offset_set(int fd, ssize_t offset) {
 
 ssize_t TAINT_func_offset_get(int fd) {
 
-fprintf(stderr, "XXX %d\n", fd);
-
   if (fd == 0 && TAINT_var_is_stdin)
     return TAINT_var_stdin_offset;
 
   if (TAINT_var_is_file && fd_entries) {
-fprintf(stderr, "YYY %d\n", fd);
     struct fd_entry *f = fd_entries;
     while (f) {
       if (fd == f->fd && f->active == 1) {
