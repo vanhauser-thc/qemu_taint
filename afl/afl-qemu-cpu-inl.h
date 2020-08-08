@@ -176,7 +176,7 @@ void afl_setup(void) {
 
   }
 
-  if ((ptr = getenv("AFL_TAINT_INPUT") && *ptr != '<' && *ptr != '>') {
+  if ((ptr = getenv("AFL_TAINT_INPUT")) && *ptr != '<' && *ptr != '>') {
   
     TAINT_var_filename = ptr;
     TAINT_var_is_file = 1;

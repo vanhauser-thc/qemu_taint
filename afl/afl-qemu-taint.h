@@ -11,6 +11,7 @@ extern int TAINT_var_is_stdin;
 extern int TAINT_var_is_shmem;
 extern int TAINT_var_taint_open;
 extern char *TAINT_var_filename;
+extern int TAINT_var_debug;
 
 void TAINT_func_fd_follow(int fd);
 void TAINT_func_fd_unfollow(int fd);
