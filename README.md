@@ -2,8 +2,6 @@
 
 First level taint implementation with qemu for linux user mode
 
-**WIP** **not working yet**
-
 ## How to use with afl++
 
 This is meant for [afl++](https://github.com/AFLplusplus/AFLplusplus).
@@ -39,3 +37,8 @@ Valid/expected values:
 
 Set `AFL_DEBUG=1`.
 This prints more than just the touched byte offset though.
+
+## Caveats
+
+  * only tested for x86_x64 for host and guest
+  * not sure everything is found :) needs testing if I did not miss anything
