@@ -137,9 +137,11 @@ void TAINT_func_mem_check(uintptr_t mem, size_t len) {
           (mem <= m->start && mem + len > m->end)
          )) {
 
+        //if (TAINT_var_debug) fprintf(stderr, "[TAINT] MEM likely found mem=0x%lx len=%lu\n", mem, len);
+
         size_t index = 0;
         while (index < len) {
-          if (mem + index >= m->start && mem + index < m->end) {
+          if (mem + index >= m->start && mem + index <= m->end) {
             unsigned int entry, bit, offset;
             offset = mem + index + m->offset - m->start;
             if (filemap) {
