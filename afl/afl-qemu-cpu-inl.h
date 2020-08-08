@@ -174,6 +174,7 @@ void afl_setup(void) {
     shm_id = atoi(id_str);
     afl_area_ptr = shmat(shm_id, NULL, 0);
     if (afl_area_ptr == (void *)-1) exit(1);
+    TAINT_var_filemap = afl_area_ptr;
 
   }
 

@@ -13,6 +13,7 @@ int TAINT_var_taint_open;
 int TAINT_var_debug;
 ssize_t TAINT_var_stdin_offset;
 char *TAINT_var_filename;
+unsigned char *TAINT_var_filemap;
 
 struct fd_entry {
   int active;
@@ -32,7 +33,6 @@ struct mem_entry {
 
 static struct fd_entry *fd_entries;
 static struct mem_entry *mem_entries;
-static unsigned char *filemap;
 
 static void TAINT_func_fd_clean(void) {
   if (fd_entries) {
@@ -144,10 +144,10 @@ void TAINT_func_mem_check(uintptr_t mem, size_t len) {
           if (mem + index >= m->start && mem + index <= m->end) {
             unsigned int entry, bit, offset;
             offset = mem + index + m->offset - m->start;
-            if (filemap) {
+            if (TAINT_var_filemap) {
               entry = offset / 8;
               bit = 1 << (offset % 8);
-              filemap[entry] |= bit;
+              TAINT_var_filemap[entry] |= bit;
             }
             if (TAINT_var_debug) fprintf(stderr, "[TAINT] MEM found mem=0x%lx file_offset=%u\n",
                     mem + index, offset);
