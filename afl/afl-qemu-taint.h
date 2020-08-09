@@ -6,6 +6,7 @@
 #include <sys/types.h>
 #include <unistd.h>
 
+extern int TAINT_var_standalone;
 extern int TAINT_var_is_file;
 extern int TAINT_var_is_stdin;
 extern int TAINT_var_is_shmem;
@@ -24,8 +25,9 @@ void TAINT_func_mem_move(uintptr_t mem_old, size_t len_old, uintptr_t mem_new, s
 void TAINT_func_offset_add(int fd, ssize_t offset);
 void TAINT_func_offset_set(int fd, ssize_t offset);
 long int TAINT_func_offset_get(int fd);
-
+int  TAINT_func_filename_match(char *fname, int dfd);
 void TAINT_func_reset(void);
+void TAINT_func_end(void);
 
 #endif
 

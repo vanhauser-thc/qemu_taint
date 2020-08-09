@@ -163,7 +163,7 @@ static void afl_map_shm_fuzz(void) {
 
 void afl_setup(void) {
 
-  if (getenv("AFL_DEBUG")) TAINT_var_debug = 1;
+  if (getenv("AFL_DEBUG") || getenv("DEBUG")) TAINT_var_debug = 1;
 
   char *ptr, *id_str = getenv(SHM_ENV_VAR);
 
@@ -176,6 +176,11 @@ void afl_setup(void) {
     if (afl_area_ptr == (void *)-1) exit(1);
     TAINT_var_filemap = afl_area_ptr;
 
+  } else {
+  
+    TAINT_var_filemap = malloc(MAX_FILE);
+    TAINT_var_standalone = 1;
+  
   }
 
   if ((ptr = getenv("AFL_TAINT_INPUT")) && *ptr != '<' && *ptr != '>') {

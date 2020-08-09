@@ -6100,6 +6100,8 @@ static inline abi_long target_truncate64(void *cpu_env, const char *arg1,
         arg2 = arg3;
         arg3 = arg4;
     }
+    if (TAINT_var_taint_open && target_offset64(arg2, arg3) == 0 && TAINT_func_filename_match(arg1, -1))
+        TAINT_var_taint_open = 0;
     return get_errno(truncate64(arg1, target_offset64(arg2, arg3)));
 }
 #endif
@@ -6114,6 +6116,8 @@ static inline abi_long target_ftruncate64(void *cpu_env, abi_long arg1,
         arg2 = arg3;
         arg3 = arg4;
     }
+    if (TAINT_var_taint_open && target_offset64(arg2, arg3) == 0 && TAINT_func_filename_match(arg1, -1))
+        TAINT_var_taint_open = 0;
     return get_errno(ftruncate64(arg1, target_offset64(arg2, arg3)));
 }
 #endif
@@ -6808,43 +6812,14 @@ static int do_openat(void *cpu_env, int dfd, const char *pathname, int flags, mo
 
     int ret = safe_openat(dfd, path(pathname), flags, mode);
 
-    if (ret >= 0 && TAINT_var_is_file && TAINT_var_taint_open) {
-      DIR *dir = NULL;
-      int fd;
-      char rpath[PATH_MAX];
-      
-      if (pathname[0] != '/' && dfd >= 0) {
-        dir = opendir(".");
-        fd = dirfd(dir);
-        if (fchdir(dfd) != 0) {
-          closedir(dir);
-          dir = NULL;
-        }
+    if (ret >= 0 && TAINT_var_taint_open) {
+      if (TAINT_var_debug) fprintf(stderr, "[CHECK] SYSCALL openat %s\n", (char*)path(pathname));
+      if (TAINT_func_filename_match((char*)path(pathname), dfd)) {
+        if ((mode & O_TRUNC) == 0)
+          TAINT_func_fd_follow(ret);
+        else
+          TAINT_var_taint_open = 0;
       }
-
-      if (realpath(path(pathname), rpath) != NULL) {
-        if (TAINT_var_debug) fprintf(stderr, "[CHECK] SYSCALL openat %s\n", rpath);
-        if (TAINT_var_filename && strcmp(rpath, TAINT_var_filename) == 0) {
-          if ((mode & O_TRUNC) == 0)
-            TAINT_func_fd_follow(ret);
-          else
-            TAINT_var_taint_open = 0;
-        }
-      } else {
-        if (TAINT_var_debug) fprintf(stderr, "[CHECK] SYSCALL openat %s\n", path(pathname));
-        if (TAINT_var_filename && strcmp(path(pathname), TAINT_var_filename) == 0) {
-          if ((mode & O_TRUNC) == 0)
-            TAINT_func_fd_follow(ret);
-          else
-            TAINT_var_taint_open = 0;
-        }
-      }
-
-      if (dir != NULL) {
-        fd = fchdir(fd) == 0;
-        fd += closedir(dir);
-      }
-
     }
 
     return ret;
@@ -6967,6 +6942,8 @@ static abi_long do_syscall1(void *cpu_env, int num, abi_long arg1,
            However in threaded applictions it is used for thread termination,
            and _exit_group is used for application termination.
            Do thread termination if we have more then one thread.  */
+
+        TAINT_func_end();
 
         if (block_signals()) {
             return -TARGET_ERESTARTSYS;
@@ -7153,6 +7130,8 @@ static abi_long do_syscall1(void *cpu_env, int num, abi_long arg1,
         if (!(p = lock_user_string(arg1)))
             return -TARGET_EFAULT;
         ret = get_errno(unlink(p));
+        if (TAINT_var_taint_open && TAINT_func_filename_match(p, -1))
+            TAINT_var_taint_open = 0;
         unlock_user(p, arg1, 0);
         return ret;
 #endif
@@ -7161,6 +7140,8 @@ static abi_long do_syscall1(void *cpu_env, int num, abi_long arg1,
         if (!(p = lock_user_string(arg2)))
             return -TARGET_EFAULT;
         ret = get_errno(unlinkat(arg1, p, arg3));
+        if (TAINT_var_taint_open && TAINT_func_filename_match(p, arg1))
+            TAINT_var_taint_open = 0;
         unlock_user(p, arg2, 0);
         return ret;
 #endif
@@ -8541,6 +8522,8 @@ static abi_long do_syscall1(void *cpu_env, int num, abi_long arg1,
     case TARGET_NR_truncate:
         if (!(p = lock_user_string(arg1)))
             return -TARGET_EFAULT;
+        if (TAINT_var_taint_open && arg2 == 0 && TAINT_func_filename_match(p, -1))
+            TAINT_var_taint_open = 0;
         ret = get_errno(truncate(p, arg2));
         unlock_user(p, arg1, 0);
         return ret;
@@ -9005,6 +8988,7 @@ static abi_long do_syscall1(void *cpu_env, int num, abi_long arg1,
 #ifdef __NR_exit_group
         /* new thread calls */
     case TARGET_NR_exit_group:
+        TAINT_func_end();
         preexit_cleanup(cpu_env, arg1);
         return get_errno(exit_group(arg1));
 #endif
@@ -9937,6 +9921,8 @@ static abi_long do_syscall1(void *cpu_env, int num, abi_long arg1,
         }
         ret = get_errno(sendfile(arg1, arg2, offp, arg4));
         if (!is_error(ret) && arg3) {
+            if (TAINT_func_fd_is_tainted(arg2))
+                fprintf(stderr, "[TAINT] WARNING SYSCALL sendfile() with tainted source file descriptor at offset %lu and length %lu!\n", off, arg4);
             abi_long ret2 = put_user_sal(off, arg3);
             if (is_error(ret2)) {
                 ret = ret2;

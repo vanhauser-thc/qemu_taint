@@ -5,7 +5,9 @@
 
 #include <sys/types.h>
 #include <unistd.h>
+#include "../config.h"
 
+int TAINT_var_standalone;
 int TAINT_var_is_file;
 int TAINT_var_is_stdin = 1;
 int TAINT_var_is_shmem;
@@ -33,6 +35,7 @@ struct mem_entry {
 
 static struct fd_entry *fd_entries;
 static struct mem_entry *mem_entries;
+static ssize_t highest_offset = 0;
 
 static void TAINT_func_fd_clean(void) {
   if (fd_entries) {
@@ -69,6 +72,7 @@ void TAINT_func_reset(void) {
     else TAINT_var_is_stdin = 1;
   }
   TAINT_var_stdin_offset = 0;
+  highest_offset = 0; 
 }
 
 void TAINT_func_fd_follow(int fd) {
@@ -142,13 +146,9 @@ void TAINT_func_mem_check(uintptr_t mem, size_t len) {
         size_t index = 0;
         while (index < len) {
           if (mem + index >= m->start && mem + index <= m->end) {
-            unsigned int entry, bit, offset;
-            offset = mem + index + m->offset - m->start;
-            if (TAINT_var_filemap) {
-              entry = offset / 8;
-              bit = 1 << (offset % 8);
-              TAINT_var_filemap[entry] = (TAINT_var_filemap[entry] | bit);
-            }
+            unsigned int offset = mem + index + m->offset - m->start;
+            if (TAINT_var_filemap && offset < MAX_FILE)
+              TAINT_var_filemap[offset] = 1;
             if (TAINT_var_debug) fprintf(stderr, "[TAINT] MEM found mem=0x%lx file_offset=%u\n",
                     mem + index, offset);
           }
@@ -168,6 +168,8 @@ void TAINT_func_mem_add(uintptr_t mem, size_t len, ssize_t offset) {
   struct mem_entry *m = (struct mem_entry *) malloc(sizeof(struct mem_entry));
   if (!m) return;
   if (TAINT_var_debug) fprintf(stderr, "[TAINT] MEM add mem=0x%lx len=%lu offset=%ld\n", mem, len, offset);
+  if (offset + len > highest_offset)
+    highest_offset = offset + len;
   m->active = 1;
   m->start = mem;
   m->len = len;
@@ -359,6 +361,78 @@ ssize_t TAINT_func_offset_get(int fd) {
   }
 
   return 0;
+}
+
+int TAINT_func_filename_match(char *fname, int dfd) {
+
+  if (!TAINT_var_is_file) return 0;
+  if (fname == NULL || fname[0] == 0) return 0;
+  
+  DIR *dir = NULL;
+  int fd, ret = 0;
+  char rpath[PATH_MAX];
+
+  if (fname[0] != '/' && dfd >= 0) {
+    dir = opendir(".");
+    fd = dirfd(dir);
+    if (fchdir(dfd) != 0) {
+      closedir(dir);
+      dir = NULL;
+    }
+  }
+
+  if (realpath(fname, rpath) != NULL)
+    if (strcmp(rpath, TAINT_var_filename) == 0)
+      ret = 1;
+  if (strcmp(fname, TAINT_var_filename) == 0)
+    ret = 1;
+
+  if (dir != NULL) {
+    fd = fchdir(fd) == 0;
+    fd += closedir(dir);
+  }
+
+  return ret;
+
+}
+
+void TAINT_func_end(void) {
+
+  if (TAINT_var_standalone) {
+  
+    unsigned int i, j, len = highest_offset;
+    if (len > MAX_FILE)
+      len = MAX_FILE;
+    
+    fprintf(stderr, "[TAINT] MAP (length: %ld, shown: %d) ('!' = touched, '.' = untouched)\n", highest_offset, len);
+    for (i = 0; i < len; i++) {
+      if (i % 64 == 0) fprintf(stderr, "[ ");
+      if (TAINT_var_filemap[i])
+        fprintf(stderr, "!");
+      else
+        fprintf(stderr, ".");
+      if (i % 64 == 63) fprintf(stderr, " ]\n");
+    }
+    
+    j = highest_offset - len;
+    if (j) {
+      for (i = 0; i < j; i++) {
+        if ((i + len) % 64 == 0) fprintf(stderr, "[ ");
+        fprintf(stderr, "?");
+        if ((i + len) % 64 == 63) fprintf(stderr, " ]\n");
+      }
+    }
+    j = 64 - (len + j) % 64;
+    if (j != 64) {
+      for (i = 0; i < j; i++)
+        fprintf(stderr, " ");
+      fprintf(stderr, " ]\n");
+    }
+
+    TAINT_var_standalone = 0;
+  
+  }
+
 }
 
 #endif
