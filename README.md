@@ -4,10 +4,11 @@ First level taint implementation with qemu for linux user mode
 
 ## How to use with afl++
 
-**not supported yet**
+**WIP**
 
 This is meant for [afl++](https://github.com/AFLplusplus/AFLplusplus).
-Checkout afl++, then in the afl++ repository execute
+Checkout this special branch of afl++: [taint branch](https://github.com/AFLplusplus/AFLplusplus/tree/taint)
+Then in the afl++ repository execute
 `cd qemu_taint && ./build_qemu_taint.sh`.
 To use it just add the -A flag to afl-fuzz.
 
@@ -22,15 +23,9 @@ Currently only x86_64 is tested for host and guest, others could work though.
 ### Running
 
 Just run your target with `afl-qemu-taint -- program flags`.
-To see any taint you have to tell the tool what do you want to taint.
-
-#### Specify what do you want to taint
-
-Set the environment variable `AFL_TAINT_INPUT`.
-Valid/expected values:
-
-  * empty, not set or `<`  -> stdin
-  * a filename  -> this file (must be a full path!)
+By default the taint is gathered on stdin reads.
+To see taint from files you have to set the environment variable
+`AFL_TAINT_INPUT` with the full path to the input file.
 
 #### The output
 
@@ -52,11 +47,11 @@ descriptors plus the tainted memory operations.
 
 2. Some syscall are not covered:
 
-  * NR_remap_file_pages, NR_copy_file_range: these are not implemented in qemu: 
+  * NR_remap_file_pages, NR_copy_file_range: these are not implemented in qemu
   * NR_sendfile, NR_sendfile64: write directly to a fd, so no memory access. This is not interpretated as taint. However a warning is given.
-  * NR_truncate, NR_truncate64: only if it truncates to 0 we stop taining, otherwise it is ignored
+  * NR_[f]truncate, NR_[f]truncate64: only if it truncates to 0 we stop watching for `open*`, otherwise it is ignored
   * NR_open_by_handle_at: not supported (PRs welcome)
 
-3. Complex things will not be detected, e.g. a rename or symlink on the file.
+3. Complex things will not be detected, e.g. a rename or symlink on the file and then working on it.
 
 4. No care for speed. It is fast enough but could be made faster.
