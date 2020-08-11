@@ -599,6 +599,8 @@ int main(int argc, char **argv, char **envp)
     int i;
     int ret;
     int execfd;
+    
+    setenv("AFL_DISABLE_LLVM_INSTRUMENTATION", "1", 1);
 
     module_call_init(MODULE_INIT_TRACE);
     qemu_init_cpu_list();
