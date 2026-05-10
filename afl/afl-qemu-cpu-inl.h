@@ -164,6 +164,7 @@ static void afl_map_shm_fuzz(void) {
 void afl_setup(void) {
 
   if (getenv("AFL_DEBUG") || getenv("DEBUG")) TAINT_var_debug = 1;
+  if (getenv("AFL_TAINT_TRACE")) TAINT_var_trace = 1;
 
   char *ptr, *id_str = getenv(SHM_ENV_VAR);
 
@@ -602,4 +603,3 @@ static void afl_wait_tsl(CPUState *cpu, int fd) {
   close(fd);
 
 }
-

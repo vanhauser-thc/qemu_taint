@@ -7002,6 +7002,7 @@ static abi_long do_syscall1(void *cpu_env, int num, abi_long arg1,
         }
         if (!(p = lock_user(VERIFY_READ, arg2, arg3, 1)))
             return -TARGET_EFAULT;
+        TAINT_func_mem_mark((uintptr_t)p, arg3);
         if (fd_trans_target_to_host_data(arg1)) {
             void *copy = g_malloc(arg3);
             memcpy(copy, p, arg3);
@@ -9398,6 +9399,11 @@ static abi_long do_syscall1(void *cpu_env, int num, abi_long arg1,
         {
             struct iovec *vec = lock_iovec(VERIFY_READ, arg2, arg3, 1);
             if (vec != NULL) {
+                int cnt;
+                for (cnt = 0; cnt < arg3; cnt++) {
+                    TAINT_func_mem_mark((uintptr_t)vec[cnt].iov_base,
+                                        vec[cnt].iov_len);
+                }
                 ret = get_errno(safe_writev(arg1, vec, arg3));
                 unlock_iovec(vec, arg2, arg3, 0);
             } else {

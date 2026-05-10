@@ -1074,6 +1074,8 @@ void tcg_prologue_init(TCGContext *s)
 
 void tcg_func_start(TCGContext *s)
 {
+    taint_tcg_func_start();
+
     tcg_pool_reset(s);
     s->nb_temps = s->nb_globals;
 

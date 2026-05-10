@@ -36,6 +36,18 @@
 #include "../afl/afl-qemu-taint.h"
 #include "../afl/afl-qemu-taint-inl.h"
 
+static uint32_t taint_tcg_current_tb = 1;
+static target_ulong taint_tcg_current_pc;
+static int taint_tcg_generating;
+
+void taint_tcg_func_start(void)
+{
+    taint_tcg_current_tb++;
+    if (taint_tcg_current_tb == 0) {
+        taint_tcg_current_tb = 1;
+    }
+}
+
 #define GEN_TAINT_OP(OP) \
 void taint_gen_##OP(TCGv addr, int off) { \
   gen_helper_taint_##OP(cpu_env, addr); \
@@ -45,6 +57,416 @@ GEN_TAINT_OP(getload1)
 GEN_TAINT_OP(getload2)
 GEN_TAINT_OP(getload4)
 GEN_TAINT_OP(getload8)
+
+static uint32_t taint_tcg_arg_id(TCGArg arg)
+{
+    TCGTemp *t = arg_temp(arg);
+    uint32_t id = temp_idx(t);
+
+    if (t->temp_global) {
+        id |= TAINT_TCG_GLOBAL_ID;
+    }
+    return id;
+}
+
+static TCGArg taint_tcg_tl_arg(TCGv v)
+{
+#if TARGET_LONG_BITS == 32
+    return tcgv_i32_arg(v);
+#else
+    return tcgv_i64_arg(v);
+#endif
+}
+
+static void taint_tcg_set_insn_start(TCGArg *args)
+{
+#if TARGET_LONG_BITS > TCG_TARGET_REG_BITS
+    taint_tcg_current_pc = deposit64(args[0], 32, 32, args[1]);
+#else
+    taint_tcg_current_pc = args[0];
+#endif
+}
+
+static void taint_tcg_const2(TCGv_i32 *tb, TCGv_i32 *a, uint32_t av)
+{
+    *tb = tcg_const_i32(taint_tcg_current_tb);
+    *a = tcg_const_i32(av);
+}
+
+static void taint_tcg_free2(TCGv_i32 tb, TCGv_i32 a)
+{
+    tcg_temp_free_i32(tb);
+    tcg_temp_free_i32(a);
+}
+
+static void taint_gen_tmp_clear_arg(TCGArg dst)
+{
+    TCGv_i32 tb, d;
+
+    taint_tcg_generating = 1;
+    taint_tcg_const2(&tb, &d, taint_tcg_arg_id(dst));
+    gen_helper_taint_tmp_clear(tb, d);
+    taint_tcg_free2(tb, d);
+    taint_tcg_generating = 0;
+}
+
+static void taint_gen_tmp_trace_value_arg(TCGArg src)
+{
+    TCGTemp *t = arg_temp(src);
+    const char *name = t->name ? t->name : "";
+    TCGv_i32 tb, s;
+    TCGv_i64 value;
+    TCGv pc;
+    TCGv_ptr name_ptr;
+    bool free_value = false;
+
+    taint_tcg_generating = 1;
+    tb = tcg_const_i32(taint_tcg_current_tb);
+    s = tcg_const_i32(taint_tcg_arg_id(src));
+    pc = tcg_const_tl(taint_tcg_current_pc);
+    name_ptr = tcg_const_ptr((void *)name);
+
+    switch (t->type) {
+    case TCG_TYPE_I32:
+        value = tcg_temp_new_i64();
+        tcg_gen_extu_i32_i64(value, temp_tcgv_i32(t));
+        free_value = true;
+        break;
+    case TCG_TYPE_I64:
+        value = temp_tcgv_i64(t);
+        break;
+    default:
+        value = tcg_const_i64(0);
+        free_value = true;
+        break;
+    }
+
+    gen_helper_taint_trace_value(cpu_env, tb, s, pc, value, name_ptr);
+    tcg_temp_free_i32(tb);
+    tcg_temp_free_i32(s);
+    tcg_temp_free(pc);
+    if (free_value) {
+        tcg_temp_free_i64(value);
+    }
+    tcg_temp_free_ptr(name_ptr);
+    taint_tcg_generating = 0;
+}
+
+static void taint_gen_tmp_copy_arg(TCGArg dst, TCGArg src)
+{
+    TCGv_i32 tb, d, s;
+
+    taint_tcg_generating = 1;
+    tb = tcg_const_i32(taint_tcg_current_tb);
+    d = tcg_const_i32(taint_tcg_arg_id(dst));
+    s = tcg_const_i32(taint_tcg_arg_id(src));
+    gen_helper_taint_tmp_copy(tb, d, s);
+    tcg_temp_free_i32(tb);
+    tcg_temp_free_i32(d);
+    tcg_temp_free_i32(s);
+    taint_tcg_generating = 0;
+}
+
+static void taint_gen_tmp_union2_arg(TCGArg dst, TCGArg src1, TCGArg src2,
+                                     int mark)
+{
+    TCGv_i32 tb, d, s1, s2, m;
+
+    taint_tcg_generating = 1;
+    tb = tcg_const_i32(taint_tcg_current_tb);
+    d = tcg_const_i32(taint_tcg_arg_id(dst));
+    s1 = tcg_const_i32(taint_tcg_arg_id(src1));
+    s2 = tcg_const_i32(taint_tcg_arg_id(src2));
+    m = tcg_const_i32(mark);
+    gen_helper_taint_tmp_union2(tb, d, s1, s2, m);
+    tcg_temp_free_i32(tb);
+    tcg_temp_free_i32(d);
+    tcg_temp_free_i32(s1);
+    tcg_temp_free_i32(s2);
+    tcg_temp_free_i32(m);
+    taint_tcg_generating = 0;
+}
+
+static void taint_gen_trace_addr_arg(TCGArg src, TCGv addr, const char *kind)
+{
+    TCGv_i32 tb, s;
+    TCGv pc;
+    TCGv_ptr kind_ptr;
+
+    taint_tcg_generating = 1;
+    tb = tcg_const_i32(taint_tcg_current_tb);
+    s = tcg_const_i32(taint_tcg_arg_id(src));
+    pc = tcg_const_tl(taint_tcg_current_pc);
+    kind_ptr = tcg_const_ptr((void *)kind);
+    gen_helper_taint_trace_addr(cpu_env, tb, s, pc, addr, kind_ptr);
+    tcg_temp_free_i32(tb);
+    tcg_temp_free_i32(s);
+    tcg_temp_free(pc);
+    tcg_temp_free_ptr(kind_ptr);
+    taint_tcg_generating = 0;
+}
+
+static void taint_gen_qemu_ld_before(TCGv addr)
+{
+    taint_gen_trace_addr_arg(taint_tcg_tl_arg(addr), addr, "mem_addr");
+}
+
+static void taint_gen_qemu_ld_after(TCGArg dst, TCGv addr, unsigned len)
+{
+    TCGv_i32 tb, d, l;
+
+    taint_tcg_generating = 1;
+    tb = tcg_const_i32(taint_tcg_current_tb);
+    d = tcg_const_i32(taint_tcg_arg_id(dst));
+    l = tcg_const_i32(len);
+    gen_helper_taint_tmp_load(tb, d, addr, l);
+    tcg_temp_free_i32(tb);
+    tcg_temp_free_i32(d);
+    tcg_temp_free_i32(l);
+    taint_tcg_generating = 0;
+}
+
+static void taint_gen_qemu_st_before(TCGArg src, TCGv addr)
+{
+    taint_gen_trace_addr_arg(taint_tcg_tl_arg(addr), addr, "mem_addr");
+    taint_gen_tmp_trace_value_arg(src);
+}
+
+static void taint_gen_qemu_st_after(TCGArg src, TCGv addr, unsigned len)
+{
+    TCGv_i32 tb, s, l;
+
+    taint_tcg_generating = 1;
+    tb = tcg_const_i32(taint_tcg_current_tb);
+    s = tcg_const_i32(taint_tcg_arg_id(src));
+    l = tcg_const_i32(len);
+    gen_helper_taint_tmp_store(tb, s, addr, l);
+    tcg_temp_free_i32(tb);
+    tcg_temp_free_i32(s);
+    tcg_temp_free_i32(l);
+    taint_tcg_generating = 0;
+}
+
+static bool taint_tcg_op_is_value_use(TCGOpcode opc)
+{
+    switch (opc) {
+    case INDEX_op_add_i32:
+    case INDEX_op_sub_i32:
+    case INDEX_op_mul_i32:
+    case INDEX_op_div_i32:
+    case INDEX_op_divu_i32:
+    case INDEX_op_rem_i32:
+    case INDEX_op_remu_i32:
+    case INDEX_op_and_i32:
+    case INDEX_op_or_i32:
+    case INDEX_op_xor_i32:
+    case INDEX_op_shl_i32:
+    case INDEX_op_shr_i32:
+    case INDEX_op_sar_i32:
+    case INDEX_op_rotl_i32:
+    case INDEX_op_rotr_i32:
+    case INDEX_op_add_i64:
+    case INDEX_op_sub_i64:
+    case INDEX_op_mul_i64:
+    case INDEX_op_div_i64:
+    case INDEX_op_divu_i64:
+    case INDEX_op_rem_i64:
+    case INDEX_op_remu_i64:
+    case INDEX_op_and_i64:
+    case INDEX_op_or_i64:
+    case INDEX_op_xor_i64:
+    case INDEX_op_shl_i64:
+    case INDEX_op_shr_i64:
+    case INDEX_op_sar_i64:
+    case INDEX_op_rotl_i64:
+    case INDEX_op_rotr_i64:
+    case INDEX_op_andc_i32:
+    case INDEX_op_orc_i32:
+    case INDEX_op_eqv_i32:
+    case INDEX_op_nand_i32:
+    case INDEX_op_nor_i32:
+    case INDEX_op_clz_i32:
+    case INDEX_op_ctz_i32:
+    case INDEX_op_ctpop_i32:
+    case INDEX_op_andc_i64:
+    case INDEX_op_orc_i64:
+    case INDEX_op_eqv_i64:
+    case INDEX_op_nand_i64:
+    case INDEX_op_nor_i64:
+    case INDEX_op_clz_i64:
+    case INDEX_op_ctz_i64:
+    case INDEX_op_ctpop_i64:
+    case INDEX_op_not_i32:
+    case INDEX_op_neg_i32:
+    case INDEX_op_not_i64:
+    case INDEX_op_neg_i64:
+        return true;
+    default:
+        return false;
+    }
+}
+
+static bool taint_tcg_op_is_copy(TCGOpcode opc)
+{
+    switch (opc) {
+    case INDEX_op_mov_i32:
+    case INDEX_op_mov_i64:
+    case INDEX_op_ext_i32_i64:
+    case INDEX_op_extu_i32_i64:
+    case INDEX_op_extrl_i64_i32:
+    case INDEX_op_extrh_i64_i32:
+    case INDEX_op_ext8s_i32:
+    case INDEX_op_ext16s_i32:
+    case INDEX_op_ext8u_i32:
+    case INDEX_op_ext16u_i32:
+    case INDEX_op_ext8s_i64:
+    case INDEX_op_ext16s_i64:
+    case INDEX_op_ext32s_i64:
+    case INDEX_op_ext8u_i64:
+    case INDEX_op_ext16u_i64:
+    case INDEX_op_ext32u_i64:
+    case INDEX_op_bswap16_i32:
+    case INDEX_op_bswap32_i32:
+    case INDEX_op_bswap16_i64:
+    case INDEX_op_bswap32_i64:
+    case INDEX_op_bswap64_i64:
+        return true;
+    default:
+        return false;
+    }
+}
+
+static void taint_tcg_before_op(TCGOpcode opc, TCGArg *args)
+{
+    const TCGOpDef *def;
+    int nb_oargs, nb_iargs, i;
+
+    if (taint_tcg_generating) return;
+
+    if (opc == INDEX_op_insn_start) {
+        taint_tcg_set_insn_start(args);
+        return;
+    }
+
+    switch (opc) {
+    case INDEX_op_call:
+    case INDEX_op_qemu_ld_i32:
+    case INDEX_op_qemu_ld_i64:
+    case INDEX_op_qemu_st_i32:
+    case INDEX_op_qemu_st_i64:
+    case INDEX_op_set_label:
+    case INDEX_op_discard:
+    case INDEX_op_br:
+    case INDEX_op_mb:
+    case INDEX_op_exit_tb:
+    case INDEX_op_goto_tb:
+    case INDEX_op_goto_ptr:
+        return;
+    default:
+        break;
+    }
+
+    def = &tcg_op_defs[opc];
+    nb_oargs = def->nb_oargs;
+    nb_iargs = def->nb_iargs;
+
+    switch (opc) {
+    case INDEX_op_setcond_i32:
+    case INDEX_op_setcond_i64:
+    case INDEX_op_movcond_i32:
+    case INDEX_op_movcond_i64:
+    case INDEX_op_brcond_i32:
+    case INDEX_op_brcond_i64:
+    case INDEX_op_brcond2_i32:
+        for (i = nb_oargs; i < nb_oargs + nb_iargs; i++) {
+            taint_gen_tmp_trace_value_arg(args[i]);
+        }
+        return;
+    default:
+        break;
+    }
+
+    if (taint_tcg_op_is_value_use(opc)) {
+        for (i = nb_oargs; i < nb_oargs + nb_iargs; i++) {
+            taint_gen_tmp_trace_value_arg(args[i]);
+        }
+    }
+}
+
+static void taint_tcg_after_op(TCGOpcode opc, TCGArg *args)
+{
+    const TCGOpDef *def;
+    int nb_oargs, nb_iargs;
+
+    if (taint_tcg_generating) return;
+
+    switch (opc) {
+    case INDEX_op_call:
+    case INDEX_op_qemu_ld_i32:
+    case INDEX_op_qemu_ld_i64:
+    case INDEX_op_qemu_st_i32:
+    case INDEX_op_qemu_st_i64:
+    case INDEX_op_insn_start:
+    case INDEX_op_set_label:
+    case INDEX_op_discard:
+    case INDEX_op_br:
+    case INDEX_op_mb:
+    case INDEX_op_exit_tb:
+    case INDEX_op_goto_tb:
+    case INDEX_op_goto_ptr:
+        return;
+    default:
+        break;
+    }
+
+    def = &tcg_op_defs[opc];
+    nb_oargs = def->nb_oargs;
+    nb_iargs = def->nb_iargs;
+
+    if (nb_oargs == 1 && nb_iargs == 0) {
+        taint_gen_tmp_clear_arg(args[0]);
+        return;
+    }
+
+    if (nb_oargs == 1 && nb_iargs == 1) {
+        if (taint_tcg_op_is_value_use(opc) || taint_tcg_op_is_copy(opc)) {
+            taint_gen_tmp_copy_arg(args[0], args[1]);
+        } else {
+            taint_gen_tmp_clear_arg(args[0]);
+        }
+        return;
+    }
+
+    switch (opc) {
+    case INDEX_op_setcond_i32:
+    case INDEX_op_setcond_i64:
+    case INDEX_op_movcond_i32:
+    case INDEX_op_movcond_i64:
+        if (nb_oargs == 1 && nb_iargs >= 2) {
+            taint_gen_tmp_union2_arg(args[0], args[1], args[2], 0);
+        }
+        return;
+    case INDEX_op_brcond_i32:
+    case INDEX_op_brcond_i64:
+    case INDEX_op_brcond2_i32:
+        return;
+    default:
+        break;
+    }
+
+    if (nb_oargs == 1 && nb_iargs >= 2) {
+        taint_gen_tmp_union2_arg(args[0], args[1], args[2], 0);
+        return;
+    }
+
+    if (nb_oargs == 2 && nb_iargs >= 2) {
+        taint_gen_tmp_union2_arg(args[0], args[nb_oargs],
+                                 args[nb_oargs + 1], 0);
+        taint_gen_tmp_union2_arg(args[1], args[nb_oargs],
+                                 args[nb_oargs + 1], 0);
+        return;
+    }
+}
 
 
 /* Reduce the number of ifdefs below.  This assumes that all uses of
@@ -59,48 +481,65 @@ extern TCGv_i32 TCGV_HIGH_link_error(TCGv_i64);
 
 void tcg_gen_op1(TCGOpcode opc, TCGArg a1)
 {
+    TCGArg args[1] = { a1 };
+    taint_tcg_before_op(opc, args);
     TCGOp *op = tcg_emit_op(opc);
     op->args[0] = a1;
+    taint_tcg_after_op(opc, args);
 }
 
 void tcg_gen_op2(TCGOpcode opc, TCGArg a1, TCGArg a2)
 {
+    TCGArg args[2] = { a1, a2 };
+    taint_tcg_before_op(opc, args);
     TCGOp *op = tcg_emit_op(opc);
     op->args[0] = a1;
     op->args[1] = a2;
+    taint_tcg_after_op(opc, args);
 }
 
 void tcg_gen_op3(TCGOpcode opc, TCGArg a1, TCGArg a2, TCGArg a3)
 {
+    TCGArg args[3] = { a1, a2, a3 };
+    taint_tcg_before_op(opc, args);
     TCGOp *op = tcg_emit_op(opc);
     op->args[0] = a1;
     op->args[1] = a2;
     op->args[2] = a3;
+    taint_tcg_after_op(opc, args);
 }
 
 void tcg_gen_op4(TCGOpcode opc, TCGArg a1, TCGArg a2, TCGArg a3, TCGArg a4)
 {
+    TCGArg args[4] = { a1, a2, a3, a4 };
+    taint_tcg_before_op(opc, args);
     TCGOp *op = tcg_emit_op(opc);
     op->args[0] = a1;
     op->args[1] = a2;
     op->args[2] = a3;
     op->args[3] = a4;
+    taint_tcg_after_op(opc, args);
 }
 
 void tcg_gen_op5(TCGOpcode opc, TCGArg a1, TCGArg a2, TCGArg a3,
                  TCGArg a4, TCGArg a5)
 {
+    TCGArg args[5] = { a1, a2, a3, a4, a5 };
+    taint_tcg_before_op(opc, args);
     TCGOp *op = tcg_emit_op(opc);
     op->args[0] = a1;
     op->args[1] = a2;
     op->args[2] = a3;
     op->args[3] = a4;
     op->args[4] = a5;
+    taint_tcg_after_op(opc, args);
 }
 
 void tcg_gen_op6(TCGOpcode opc, TCGArg a1, TCGArg a2, TCGArg a3,
                  TCGArg a4, TCGArg a5, TCGArg a6)
 {
+    TCGArg args[6] = { a1, a2, a3, a4, a5, a6 };
+    taint_tcg_before_op(opc, args);
     TCGOp *op = tcg_emit_op(opc);
     op->args[0] = a1;
     op->args[1] = a2;
@@ -108,6 +547,7 @@ void tcg_gen_op6(TCGOpcode opc, TCGArg a1, TCGArg a2, TCGArg a3,
     op->args[3] = a4;
     op->args[4] = a5;
     op->args[5] = a6;
+    taint_tcg_after_op(opc, args);
 }
 
 void tcg_gen_mb(TCGBar mb_type)
@@ -2725,13 +3165,9 @@ void tcg_gen_qemu_ld_i32(TCGv_i32 val, TCGv addr, TCGArg idx, TCGMemOp memop)
     memop = tcg_canonicalize_memop(memop, 0, 0);
     trace_guest_mem_before_tcg(tcg_ctx->cpu, cpu_env,
                                addr, trace_mem_get_info(memop, 0));
+    taint_gen_qemu_ld_before(addr);
     gen_ldst_i32(INDEX_op_qemu_ld_i32, val, addr, memop, idx);
-    switch(memop & 3) {
-      case 0: taint_gen_getload1(addr, idx); break;
-      case 1: taint_gen_getload2(addr, idx); break;
-      case 2: taint_gen_getload4(addr, idx); break;
-      case 3: taint_gen_getload8(addr, idx); break;
-    }
+    taint_gen_qemu_ld_after(tcgv_i32_arg(val), addr, 1u << (memop & 3));
 //    fprintf(stderr, "TAINT gen_ldst_i32 addr=%p val=%d idx=%p memop=%u\n", addr, val, idx, (memop & 3));
 }
 
@@ -2741,7 +3177,9 @@ void tcg_gen_qemu_st_i32(TCGv_i32 val, TCGv addr, TCGArg idx, TCGMemOp memop)
     memop = tcg_canonicalize_memop(memop, 0, 1);
     trace_guest_mem_before_tcg(tcg_ctx->cpu, cpu_env,
                                addr, trace_mem_get_info(memop, 1));
+    taint_gen_qemu_st_before(tcgv_i32_arg(val), addr);
     gen_ldst_i32(INDEX_op_qemu_st_i32, val, addr, memop, idx);
+    taint_gen_qemu_st_after(tcgv_i32_arg(val), addr, 1u << (memop & 3));
 }
 
 void tcg_gen_qemu_ld_i64(TCGv_i64 val, TCGv addr, TCGArg idx, TCGMemOp memop)
@@ -2761,13 +3199,9 @@ void tcg_gen_qemu_ld_i64(TCGv_i64 val, TCGv addr, TCGArg idx, TCGMemOp memop)
     memop = tcg_canonicalize_memop(memop, 1, 0);
     trace_guest_mem_before_tcg(tcg_ctx->cpu, cpu_env,
                                addr, trace_mem_get_info(memop, 0));
+    taint_gen_qemu_ld_before(addr);
     gen_ldst_i64(INDEX_op_qemu_ld_i64, val, addr, memop, idx);
-    switch(memop & 3) {
-      case 0: taint_gen_getload1(addr, idx); break;
-      case 1: taint_gen_getload2(addr, idx); break;
-      case 2: taint_gen_getload4(addr, idx); break;
-      case 3: taint_gen_getload8(addr, idx); break;
-    }
+    taint_gen_qemu_ld_after(tcgv_i64_arg(val), addr, 1u << (memop & 3));
 }
 
 void tcg_gen_qemu_st_i64(TCGv_i64 val, TCGv addr, TCGArg idx, TCGMemOp memop)
@@ -2781,7 +3215,9 @@ void tcg_gen_qemu_st_i64(TCGv_i64 val, TCGv addr, TCGArg idx, TCGMemOp memop)
     memop = tcg_canonicalize_memop(memop, 1, 1);
     trace_guest_mem_before_tcg(tcg_ctx->cpu, cpu_env,
                                addr, trace_mem_get_info(memop, 1));
+    taint_gen_qemu_st_before(tcgv_i64_arg(val), addr);
     gen_ldst_i64(INDEX_op_qemu_st_i64, val, addr, memop, idx);
+    taint_gen_qemu_st_after(tcgv_i64_arg(val), addr, 1u << (memop & 3));
 }
 
 static void tcg_gen_ext_i32(TCGv_i32 ret, TCGv_i32 val, TCGMemOp opc)

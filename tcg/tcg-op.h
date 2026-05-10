@@ -33,6 +33,7 @@ void taint_gen_getload1(TCGv addr, int off);
 void taint_gen_getload2(TCGv addr, int off);
 void taint_gen_getload4(TCGv addr, int off);
 void taint_gen_getload8(TCGv addr, int off);
+void taint_tcg_func_start(void);
 
 /* Basic output routines.  Not for general consumption.  */
 

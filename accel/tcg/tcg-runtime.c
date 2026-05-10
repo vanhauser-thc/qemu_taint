@@ -60,6 +60,101 @@ void HELPER(taint_getload8)(CPUArchState *env, target_ulong addr) {
 
 }
 
+void HELPER(taint_tmp_load)(uint32_t tb, uint32_t dst, target_ulong addr,
+                            uint32_t len) {
+
+  TAINT_func_tmp_load(tb, dst, addr, len);
+
+}
+
+void HELPER(taint_tmp_store)(uint32_t tb, uint32_t src, target_ulong addr,
+                             uint32_t len) {
+
+  TAINT_func_tmp_store(tb, src, addr, len);
+
+}
+
+void HELPER(taint_tmp_clear)(uint32_t tb, uint32_t dst) {
+
+  TAINT_func_tmp_clear(tb, dst);
+
+}
+
+void HELPER(taint_tmp_copy)(uint32_t tb, uint32_t dst, uint32_t src) {
+
+  TAINT_func_tmp_copy(tb, dst, src);
+
+}
+
+void HELPER(taint_tmp_union2)(uint32_t tb, uint32_t dst, uint32_t src1,
+                              uint32_t src2, uint32_t mark) {
+
+  TAINT_func_tmp_union2(tb, dst, src1, src2, mark);
+
+}
+
+void HELPER(taint_tmp_mark)(uint32_t tb, uint32_t src) {
+
+  TAINT_func_tmp_mark(tb, src);
+
+}
+
+static char *taint_disas_one(CPUArchState *env, target_ulong pc) {
+
+  FILE *stream;
+  char *buf = NULL;
+  size_t size = 0;
+
+  stream = open_memstream(&buf, &size);
+  if (!stream) return NULL;
+
+#ifdef TARGET_MAX_INSN_SIZE
+  target_disas(stream, ENV_GET_CPU(env), pc, TARGET_MAX_INSN_SIZE);
+#else
+  target_disas(stream, ENV_GET_CPU(env), pc, 15);
+#endif
+  fclose(stream);
+
+  if (buf) {
+    char *nl = strchr(buf, '\n');
+    if (nl) *nl = 0;
+  }
+  return buf;
+
+}
+
+void HELPER(taint_trace_value)(CPUArchState *env, uint32_t tb, uint32_t src,
+                               target_ulong pc, uint64_t value, void *name) {
+
+  char *insn;
+
+  if (!TAINT_var_trace) {
+    TAINT_func_tmp_mark(tb, src);
+    return;
+  }
+
+  insn = taint_disas_one(env, pc);
+  TAINT_func_tmp_trace_value(tb, src, pc, value, name, insn);
+  free(insn);
+
+}
+
+void HELPER(taint_trace_addr)(CPUArchState *env, uint32_t tb, uint32_t src,
+                              target_ulong pc, target_ulong addr, void *kind) {
+
+  char *insn;
+
+  if (!TAINT_var_trace) {
+    TAINT_func_tmp_mark(tb, src);
+    return;
+  }
+
+  insn = taint_disas_one(env, pc);
+  TAINT_func_tmp_trace_addr(tb, src, pc, addr, kind, insn);
+  free(insn);
+
+}
+
 
 
 /* 32-bit helpers */

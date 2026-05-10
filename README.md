@@ -27,6 +27,10 @@ By default the taint is gathered on stdin reads.
 To see taint from files you have to set the environment variable
 `AFL_TAINT_INPUT` with the full path to the input file.
 
+The map reports input bytes after the guest processes them, not just when they
+are read. Processing includes comparisons, branches, arithmetic/logic, memory
+address use, stores, and selected syscall consumers.
+
 #### The output
 
 ```
@@ -40,6 +44,19 @@ Set `DEBUG=1` (or `AFL_DEBUG=1`).
 
 This prints all the syscalls that touch the filename and tainted file
 descriptors plus the tainted memory operations.
+
+#### Taint trace output
+
+Set `AFL_TAINT_TRACE=1` to print a line immediately before an instruction
+processes tainted data. Each line includes the guest instruction address, the
+original input byte offset, the value or memory address involved, and a
+one-instruction disassembly.
+
+Example:
+
+```
+[TAINT_TRACE] pc=0x201239 offset=0 value=0x41 mem_addr=0x40007ffc90 insn=0x00201239:  41 80 3c 24 41           cmpb     $0x41, (%r12)
+```
 
 ## Caveats
 
